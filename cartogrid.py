@@ -4,14 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
 import pandas as pd
-import seaborn as sns
-sns.set(style="whitegrid")
-sns.set_context('notebook', font_scale=1.2)
 
 
-def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
-                        countries=True, departamentos=False,
-                        amva=False, antioquia=False, rivers=False, **kwargs):
+def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
+                        countries=True, coastline=True,
+                        departamentos=False, subregiones=False,
+                        amva=False, antioquia=False, rivers=False,
+                        mpio_antioquia=False, **kwargs):
     """
     Add continents, coastlines, gridlines, and tick labels to a Cartopy axes.
     Additionally, it can add features such as countries,
@@ -60,18 +59,31 @@ def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
     from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
     import cartopy.feature as cfeature
     from cartopy.io.shapereader import Reader
+    import geopandas as gpd
 
     color_shape = kwargs.get('color_shape', 'k')
+    lw_shape = kwargs.get('lw_shape', 0.8)
+
     color_country = kwargs.get('color_country', 'k')
+    lw_country = kwargs.get('lw_country', 1)
+
+    color_mpio = kwargs.get('color_mpio', 'dimgray')
+    lw_mpio = kwargs.get('lw_mpio', 0.7)
+
+    color_river = kwargs.get('color_river', 'gray')
+    lw_river = kwargs.get('lw_river', 0.6)
+
+    fontsize_latlon = kwargs.get('fontsize_latlon', 14)
+    lw_coastlines = kwargs.get('lw_coastlines', 0.8)
 
     lon_val = np.arange(-180, 180, lon_step)
 
     # Set the tick locations and labels for the axes
     ax.set_xticks(lon_val, crs=ccrs.PlateCarree())
     ax.set_yticks(np.arange(-90, 91, lat_step), crs=ccrs.PlateCarree())
-    ax.tick_params(axis='both', which='major', labelsize=12, color="#434343")
-    lon_formatter = LongitudeFormatter(zero_direction_label=True,
-                                       number_format='.0f')
+    ax.tick_params(axis='both', which='major', labelsize=fontsize_latlon,
+                   color="#434343")
+    lon_formatter = LongitudeFormatter(zero_direction_label=True)
     lat_formatter = LatitudeFormatter()
     ax.xaxis.set_major_formatter(lon_formatter)
     ax.yaxis.set_major_formatter(lat_formatter)
@@ -81,9 +93,10 @@ def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
     ax.grid(which='major', linestyle='--', linewidth='0.6', color='gray',
             alpha=0.8, zorder=9)
 
-    # Add coastlines to the axes
-    ax.coastlines(resolution=f'{map_resolution}m', color='k', alpha=0.78,
-                  lw=0.6, zorder=10)
+    if coastline:
+        # Add coastlines to the axes
+        ax.coastlines(resolution=f'{map_resolution}m', color='k', alpha=1,
+                    lw=lw_coastlines, zorder=10)
 
     if countries:
         # Load a high-resolution map of country borders
@@ -96,14 +109,14 @@ def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
 
         # Add country borders to the axes
         ax.add_feature(Borders, edgecolor=color_country, facecolor='None',
-                       alpha=0.8, lw=0.6, zorder=11)
+                       alpha=1, lw=lw_country, zorder=11)
 
     if departamentos:
         root = os.path.join(os.path.dirname(__file__), 'shapes/COL_shp/')
         path_shape = f'{root}gadm36_COL_1.shp'
         ax.add_geometries(Reader(path_shape).geometries(),
                           ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=0.4,
+                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
                           zorder=12)
 
     if amva:
@@ -111,16 +124,36 @@ def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
         path_shape = f'{root}AreaMetropolitana.shp'
         ax.add_geometries(Reader(path_shape).geometries(),
                           ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=0.4,
+                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
                           zorder=13)
     if antioquia:
         root = os.path.join(os.path.dirname(__file__), 'shapes/Antioquia/')
         path_shape = f'{root}Antioquia.shp'
         ax.add_geometries(Reader(path_shape).geometries(),
                           ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=0.4,
+                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
                           zorder=12)
+    if subregiones:
+        root = os.path.join(os.path.dirname(__file__),
+                            'shapes/Subregiones_Antioquia/')
+        path_shape = f'{root}subregiones.shp'
+        ax.add_geometries(Reader(path_shape).geometries(),
+                          ccrs.PlateCarree(),
+                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
+                          zorder=12)
+    if mpio_antioquia:
+        root = os.path.join(os.path.dirname(__file__),
+                            'shapes/Municipios_Antioquia/')
+        path_shape = f'{root}municipios_.shp'
         
+        gdf = gpd.read_file(path_shape)
+        gdf = gdf.to_crs(epsg=4326)
+        ax.add_geometries(gdf.geometry,
+                          ccrs.PlateCarree(),
+                          facecolor='none',
+                          edgecolor=color_mpio,
+                          lw=lw_mpio,
+                          zorder=11)
     if rivers:
         # Load a high-resolution map of river centerlines
         Rivers = cfeature.NaturalEarthFeature(
@@ -130,8 +163,8 @@ def continentes_lon_lat(ax, lon_step=30, lat_step=15, map_resolution=50,
             facecolor='none')
 
         # Add rivers to the axes
-        ax.add_feature(Rivers, edgecolor='gray', facecolor='None',
-                    alpha=0.8, lw=0.6, zorder=11)
+        ax.add_feature(Rivers, edgecolor=color_river, facecolor='None',
+                       lw=lw_river, zorder=11)
     return ax
 
 
@@ -198,7 +231,7 @@ def define_grid_fig(num_rows, num_columns,
 
 
 def add_colorbar(fig, cs, label, orientation, grid_prop,
-                 cbar_factor=0.8, cbar_width=0.025, **kwargs):
+                 cbar_factor=0.8, cbar_width=0.025, fontsize=12, **kwargs):
     """
     Add a colorbar to a figure.
 
@@ -240,6 +273,9 @@ def add_colorbar(fig, cs, label, orientation, grid_prop,
     # Get the x-coordinate for the colorbar, default to 1 if not specified
     x_coord_cbar = kwargs.get('x_coord_cbar', 1)
 
+    extend = kwargs.get('extend', 'both')
+    ticks = kwargs.get('ticks', None)
+
     # Check the orientation of the colorbar
     if orientation == 'horizontal':
         # Calculate the axes of the colorbar for a horizontal orientation
@@ -249,8 +285,16 @@ def add_colorbar(fig, cs, label, orientation, grid_prop,
             (x_coords[-1]+x_fig-x_coords[0])*cbar_factor,
             cbar_width])
 
-        # Add a horizontal colorbar to the figure
-        fig.colorbar(cs, cax=cbaxes, orientation='horizontal', label=label)
+        if ticks is not None:
+            # Add a horizontal colorbar to the figure with specified ticks
+            cbar = fig.colorbar(cs, cax=cbaxes, orientation='horizontal',
+                                extend=extend, label=label, ticks=ticks)
+        else:
+            # Add a horizontal colorbar to the figure
+            cbar = fig.colorbar(cs, cax=cbaxes, orientation='horizontal',
+                                extend=extend, label=label)
+        cbar.ax.tick_params(labelsize=fontsize)
+        cbar.set_label(label, fontsize=fontsize)
 
     elif orientation == 'vertical':
         # Calculate the axes of the colorbar for a vertical orientation
@@ -261,7 +305,13 @@ def add_colorbar(fig, cs, label, orientation, grid_prop,
                                (y_coords[0]+y_fig-y_coords[-1])*cbar_factor])
 
         # Add a vertical colorbar to the figure
-        fig.colorbar(cs, cax=cbaxes, label=label)
+        if ticks is not None:
+            cbar = fig.colorbar(cs, cax=cbaxes, label=label, extend=extend,
+                                ticks=ticks)
+        else:
+            cbar = fig.colorbar(cs, cax=cbaxes, label=label, extend=extend,)
+        cbar.ax.tick_params(labelsize=fontsize)
+        cbar.set_label(label, fontsize=fontsize)
 
     else:
         # Raise an error if the orientation is not recognized
@@ -269,26 +319,142 @@ def add_colorbar(fig, cs, label, orientation, grid_prop,
             "Invalid orientation. Choose either 'horizontal' or 'vertical'.")
 
 
+def add_colorbar_col(fig, cs, label, grid_prop, col_idx,
+                     cbar_factor=0.8, cbar_width=0.025, fontsize=12, **kwargs):
+    """
+    Add a colorbar to a figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to which the colorbar will be added.
+    cs : QuadContourSet
+        The contour plot for which the colorbar will be created.
+    label : str
+        The label for the colorbar.
+    orientation : str
+        The orientation of the colorbar, either 'horizontal' or 'vertical'.
+    grid_prop : tuple
+        Tuple containing the x-coordinates, y-coordinates, width,
+        and height of each subplot.
+    cbar_factor : float, optional
+        The scaling factor for the colorbar, by default 0.8.
+        Determines the length of the colorbar relative to the plot.
+    cbar_width : float, optional
+        The width of the colorbar, by default 0.025.
+    **kwargs : dict, optional
+        Additional keyword arguments for customizing the position of the
+        colorbar. Can include 'y_coord_cbar' and 'x_coord_cbar' for vertical
+        and horizontal colorbars respectively.
+
+    Raises
+    ------
+    ValueError
+        If the orientation is neither 'horizontal' nor 'vertical'.
+    """
+
+    # Unpack the properties of the grid
+    (x_coords, y_coords, x_fig, y_fig) = grid_prop
+
+    # Get the y-coordinate for the colorbar, default to -0.1 if not specified
+    y_coord_cbar = kwargs.get('y_coord_cbar', -0.1)
+
+    # Get the x-coordinate for the colorbar, default to 1 if not specified
+    x_coord_cbar = kwargs.get('x_coord_cbar', 1)
+
+    extend = kwargs.get('extend', 'both')
+    ticks = kwargs.get('ticks', None)
+
+    # Calculate the axes of the colorbar for a horizontal orientation
+    cbaxes = fig.add_axes([
+        x_coords[col_idx] + (1-cbar_factor)*(x_fig)/2,
+        y_coord_cbar,
+        (x_fig)*cbar_factor,
+        cbar_width])
+
+    # Add a horizontal colorbar to the figure
+    if ticks is not None:
+        cbar = fig.colorbar(cs, cax=cbaxes, orientation='horizontal',
+                            label=label, extend=extend, ticks=ticks)
+    else:
+        cbar = fig.colorbar(cs, cax=cbaxes, orientation='horizontal',
+                            extend=extend, label=label)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.set_label(label, fontsize=fontsize)
+
+
+def add_colorbar_row(fig, cs, label, grid_prop, row_idx,
+                     cbar_factor=0.8, cbar_width=0.025, fontsize=12, **kwargs):
+    """
+    Add a colorbar to a figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to which the colorbar will be added.
+    cs : QuadContourSet
+        The contour plot for which the colorbar will be created.
+    label : str
+        The label for the colorbar.
+    orientation : str
+        The orientation of the colorbar, either 'horizontal' or 'vertical'.
+    grid_prop : tuple
+        Tuple containing the x-coordinates, y-coordinates, width,
+        and height of each subplot.
+    cbar_factor : float, optional
+        The scaling factor for the colorbar, by default 0.8.
+        Determines the length of the colorbar relative to the plot.
+    cbar_width : float, optional
+        The width of the colorbar, by default 0.025.
+    **kwargs : dict, optional
+        Additional keyword arguments for customizing the position of the
+        colorbar. Can include 'y_coord_cbar' and 'x_coord_cbar' for vertical
+        and horizontal colorbars respectively.
+
+    Raises
+    ------
+    ValueError
+        If the orientation is neither 'horizontal' nor 'vertical'.
+    """
+
+    # Unpack the properties of the grid
+    (x_coords, y_coords, x_fig, y_fig) = grid_prop
+
+    # Get the y-coordinate for the colorbar, default to -0.1 if not specified
+    y_coord_cbar = kwargs.get('y_coord_cbar', -0.1)
+
+    # Get the x-coordinate for the colorbar, default to 1 if not specified
+    x_coord_cbar = kwargs.get('x_coord_cbar', 1)
+
+    extend = kwargs.get('extend', 'both')
+    ticks = kwargs.get('ticks', None)
+
+    # Calculate the axes of the colorbar for a vertical orientation
+    cbaxes = fig.add_axes([x_coord_cbar,
+                           y_coords[row_idx] + (1-cbar_factor) *
+                           (y_fig)/2,
+                           cbar_width,
+                           (y_fig)*cbar_factor])
+
+    # Add a vertical colorbar to the figure
+    if ticks is not None:
+        cbar = fig.colorbar(cs, cax=cbaxes, label=label,
+                            extend=extend, ticks=ticks)
+    else:
+        cbar = fig.colorbar(cs, cax=cbaxes, label=label, extend=extend)
+    cbar.ax.tick_params(labelsize=fontsize)
+    cbar.set_label(label, fontsize=fontsize)
+
+
 if __name__ == '__main__':
-
-    # Open the netCDF dataset
-    ds = xr.open_dataset('dummy_data/air.2m.gauss.2022.nc')
-
-    # Extract the temperature values (converting from Kelvin to Celsius)
-    var_values = ds['air'].values[:, 0, :, :]-273.15
-    # Extract the time values and convert to datetime
-    time = pd.to_datetime(ds['time'].values)
-    # Extract latitude and longitude values
-    lat = ds['lat'].values
-    lon = ds['lon'].values
 
     # Define the map projection (PlateCarree) and set the image extent
     proj = ccrs.PlateCarree(central_longitude=0)
-    img_extent = (-80, -66, -5, 13)
+    img_extent = (-77.5, -73.5, 5, 9)
 
     # Define the grid size (number of rows and columns)
-    num_rows = 3
-    num_columns = 3
+    num_rows = 1
+    num_columns = 1
 
     # Use the function to calculate properties of the grid
     grid_prop = x_coords, y_coords, x_fig, y_fig = define_grid_fig(
@@ -307,8 +473,14 @@ if __name__ == '__main__':
     # Define the contour levels for the temperature plot
     levels = np.linspace(6, 32, 18)
 
-    # Define the colormap for the plot
-    cmap = sns.color_palette("Spectral_r", as_cmap=True)
+    map_prop = {'subregiones': True,
+                'mpio_antioquia': True,
+                'rivers': True,
+                'lon_step': 2.5,
+                'lat_step': 2.5,
+                'map_resolution': 10,
+                'lw_shape': 1.5,
+                'color_river': 'darkcyan',}
 
     # Loop through each row and column to create a grid of subplots
     for fi in range(num_rows):
@@ -318,12 +490,11 @@ if __name__ == '__main__':
                                x_fig, y_fig],
                               projection=proj)
             # Add geographic features to the plot
-            ax = continentes_lon_lat(ax, departamentos=True, lon_step=5,
-                                     lat_step=5)
+            ax = add_map_features(ax, **map_prop)
 
             # Set the image extent and aspect ratio of the plot
             ax.set_extent(img_extent, proj)
-            ax.set_aspect('auto')
+            #ax.set_aspect('auto')
 
             # Remove y-axis labels for subplots that aren't in the first column
             if ci > 0:
@@ -333,101 +504,5 @@ if __name__ == '__main__':
             if fi < (num_rows - 1):
                 ax.set_xticklabels([])
 
-            # Plot the temperature data for the current time slice
-            cs = ax.contourf(lon, lat, var_values[idx, :, :], levels,
-                             cmap=cmap, extend='both', transform=proj)
-
-            # Add a title to each subplot
-            ax.set_title(f"{time[idx].strftime('%Y-%b-%d')}",
-                         fontdict=font_prop_title)
-
             # Increment the index to move to the next time slice
             idx += 1
-
-    # Define the orientation and label of the colorbar
-    orientation = 'horizontal'
-    label = 'Temperature [°C]'
-
-    # Add a horizontal colorbar to the figure
-    add_colorbar(fig=fig, cs=cs, label=label,
-                 orientation=orientation,
-                 grid_prop=grid_prop,
-                 cbar_factor=0.8,
-                 cbar_width=0.025,
-                 y_coord_cbar=-0.035)
-
-    # Add a vertical colorbar to the figure (optional)
-    add_colorbar(fig, cs, label, 'vertical', grid_prop,
-                 cbar_factor=0.8, cbar_width=0.025)
-
-    # Show the figure with all its subplots and colorbars
-    plt.show()
-
-    # Another example
-    img_extent = (-78, -73.5, 5, 9)
-    num_rows = 1
-    num_columns = 1
-
-    # Use the function to calculate properties of the grid
-    grid_prop = x_coords, y_coords, x_fig, y_fig = define_grid_fig(
-        num_rows, num_columns)
-
-    # Create a figure with a specified size
-    fig = plt.figure(figsize=(6, 5))
-
-    # Initialize the index for selecting time slices of the temperature data
-    idx = 0
-    # Define the contour levels for the temperature plot
-    levels = np.linspace(6, 32, 18)
-
-    # Define the colormap for the plot
-    cmap = sns.color_palette("Spectral_r", as_cmap=True)
-
-    # Loop through each row and column to create a grid of subplots
-    for fi in range(num_rows):
-        for ci in range(num_columns):
-            # Add axes to the figure with the calculated properties
-            ax = fig.add_axes([x_coords[ci], y_coords[fi],
-                               x_fig, y_fig],
-                              projection=proj)
-            # Add geographic features to the plot
-            ax = continentes_lon_lat(ax, amva=True, antioquia=True,
-                                     rivers=True,
-                                     lon_step=1, lat_step=1,
-                                     map_resolution=10)
-
-            # Set the image extent and aspect ratio of the plot
-            ax.set_extent(img_extent, proj)
-            ax.set_aspect('auto')
-
-            # Remove y-axis labels for subplots that aren't in the first column
-            if ci > 0:
-                ax.set_yticklabels([])
-
-            # Remove x-axis labels for subplots that are not in the last row
-            if fi < (num_rows - 1):
-                ax.set_xticklabels([])
-
-            # Plot the temperature data for the current time slice
-            cs = ax.contourf(lon, lat, var_values[idx, :, :], levels,
-                             cmap=cmap, extend='both', transform=proj)
-
-            # Add a title to each subplot
-            ax.set_title(f"{time[idx].strftime('%Y-%b-%d')}",
-                         fontdict=font_prop_title)
-
-            # Increment the index to move to the next time slice
-            idx += 1
-
-    # Define the orientation and label of the colorbar
-    label = 'Temperature [°C]'
-
-    # Add a vertical colorbar to the figure (optional)
-    add_colorbar(fig, cs, label, 'vertical', grid_prop,
-                 cbar_factor=0.8, cbar_width=0.025)
-
-    # Show the figure with all its subplots and colorbars
-    plt.show()
-
-
-# %%
