@@ -7,14 +7,11 @@ import pandas as pd
 
 
 def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
-                        countries=True, coastline=True,
-                        departamentos=False, subregiones=False,
-                        amva=False, antioquia=False, rivers=False,
-                        mpio_antioquia=False, **kwargs):
+                    countries=False, coastline=True, rivers=False,
+                    projection=None,
+                    **kwargs):
     """
     Add continents, coastlines, gridlines, and tick labels to a Cartopy axes.
-    Additionally, it can add features such as countries,
-    Colombian's departments,  Antioquia department, the AMVA area, and rivers.
     Custom colors can also be set for shapes and countries.
 
     Parameters
@@ -30,14 +27,6 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     countries : bool, optional
         If True, adds high-resolution country borders to the axes,
         by default True.
-    departamentos : bool, optional
-        If True, adds department borders of Colombia to the axes,
-        by default False.
-    amva : bool, optional
-        If True, adds the Metropolitan Area of the Aburrá Valley (AMVA) to
-        the axes, by default False.
-    antioquia : bool, optional
-        If True, adds Antioquia's borders to the axes, by default False.
     rivers : bool, optional
         If True, adds the representation of rivers to the axes,
         by default False.
@@ -53,118 +42,81 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
         The modified Cartopy axes with the added features and gridlines.
     """
 
-    import os
     import numpy as np
     import cartopy.crs as ccrs
     from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
     import cartopy.feature as cfeature
-    from cartopy.io.shapereader import Reader
-    import geopandas as gpd
 
-    color_shape = kwargs.get('color_shape', 'k')
-    lw_shape = kwargs.get('lw_shape', 0.8)
+    # Use the projection currently attached to the axis if none is provided
+    if projection is None:
+        projection = ax.projection
 
-    color_country = kwargs.get('color_country', 'k')
-    lw_country = kwargs.get('lw_country', 1)
+    # Extract central longitude if available
+    central_lon = getattr(projection, 'central_longitude', 0)
 
-    color_mpio = kwargs.get('color_mpio', 'dimgray')
-    lw_mpio = kwargs.get('lw_mpio', 0.7)
+    # -----------------------------------------
+    # UNIVERSAL LONGITUDE GRID GENERATION
+    # -----------------------------------------
 
-    color_river = kwargs.get('color_river', 'gray')
-    lw_river = kwargs.get('lw_river', 0.6)
+    # Create tick values centered on the projection’s central longitude
+    lon_min = central_lon - 180
+    lon_max = central_lon + 180
+    lon_val = np.arange(lon_min, lon_max + lon_step, lon_step)
 
-    fontsize_latlon = kwargs.get('fontsize_latlon', 14)
-    lw_coastlines = kwargs.get('lw_coastlines', 0.8)
+    # Normalize to [-180, 180] for proper formatting
+    lon_val = ((lon_val + 180) % 360) - 180
 
-    lon_val = np.arange(-180, 180, lon_step)
+    # -----------------------------------------
+    # TICKS, LABELS, GRID
+    # -----------------------------------------
 
-    # Set the tick locations and labels for the axes
     ax.set_xticks(lon_val, crs=ccrs.PlateCarree())
     ax.set_yticks(np.arange(-90, 91, lat_step), crs=ccrs.PlateCarree())
-    ax.tick_params(axis='both', which='major', labelsize=fontsize_latlon,
-                   color="#434343")
-    lon_formatter = LongitudeFormatter(zero_direction_label=True)
+
+    fontsize_latlon = kwargs.get('fontsize_latlon', 14)
+    ax.tick_params(axis='both', labelsize=fontsize_latlon, color="#434343")
+
+    # LongitudeFormatter interprets values as degrees east of Greenwich
+    lon_formatter = LongitudeFormatter(number_format='.0f',
+                                      zero_direction_label=True)
     lat_formatter = LatitudeFormatter()
+
     ax.xaxis.set_major_formatter(lon_formatter)
     ax.yaxis.set_major_formatter(lat_formatter)
     ax.set_axisbelow(False)
 
-    # Add gridlines to the axes
-    ax.grid(which='major', linestyle='--', linewidth='0.6', color='gray',
-            alpha=0.8, zorder=9)
+    # GRIDLINES
+    ax.grid(which='major', linestyle='--', linewidth=0.6,
+            color='gray', alpha=0.8, zorder=9)
+
+    # -----------------------------------------
+    # FEATURES (coastlines, borders, rivers)
+    # -----------------------------------------
+
+    lw_coastlines = kwargs.get('lw_coastlines', 0.8)
+    color_country = kwargs.get('color_country', 'k')
+    lw_country = kwargs.get('lw_country', 1)
+    color_river = kwargs.get('color_river', 'gray')
+    lw_river = kwargs.get('lw_river', 0.6)
 
     if coastline:
-        # Add coastlines to the axes
-        ax.coastlines(resolution=f'{map_resolution}m', color='k', alpha=1,
-                    lw=lw_coastlines, zorder=10)
+        ax.coastlines(resolution=f"{map_resolution}m",
+                      color='k', lw=lw_coastlines, zorder=10)
 
     if countries:
-        # Load a high-resolution map of country borders
-        Borders = cfeature.NaturalEarthFeature(
-            category='cultural',
-            name='admin_0_boundary_lines_land',
-            scale=f'{map_resolution}m',
-            facecolor='none'
-        )
+        borders = cfeature.NaturalEarthFeature(
+            'cultural', 'admin_0_boundary_lines_land',
+            scale=f"{map_resolution}m", facecolor='none')
+        ax.add_feature(borders, edgecolor=color_country,
+                       lw=lw_country, zorder=11)
 
-        # Add country borders to the axes
-        ax.add_feature(Borders, edgecolor=color_country, facecolor='None',
-                       alpha=1, lw=lw_country, zorder=11)
-
-    if departamentos:
-        root = os.path.join(os.path.dirname(__file__), 'shapes/COL_shp/')
-        path_shape = f'{root}gadm36_COL_1.shp'
-        ax.add_geometries(Reader(path_shape).geometries(),
-                          ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
-                          zorder=12)
-
-    if amva:
-        root = os.path.join(os.path.dirname(__file__), 'shapes/AMVA/')
-        path_shape = f'{root}AreaMetropolitana.shp'
-        ax.add_geometries(Reader(path_shape).geometries(),
-                          ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
-                          zorder=13)
-    if antioquia:
-        root = os.path.join(os.path.dirname(__file__), 'shapes/Antioquia/')
-        path_shape = f'{root}Antioquia.shp'
-        ax.add_geometries(Reader(path_shape).geometries(),
-                          ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
-                          zorder=12)
-    if subregiones:
-        root = os.path.join(os.path.dirname(__file__),
-                            'shapes/Subregiones_Antioquia/')
-        path_shape = f'{root}subregiones.shp'
-        ax.add_geometries(Reader(path_shape).geometries(),
-                          ccrs.PlateCarree(),
-                          facecolor='none', edgecolor=color_shape, lw=lw_shape,
-                          zorder=12)
-    if mpio_antioquia:
-        root = os.path.join(os.path.dirname(__file__),
-                            'shapes/Municipios_Antioquia/')
-        path_shape = f'{root}municipios_.shp'
-        
-        gdf = gpd.read_file(path_shape)
-        gdf = gdf.to_crs(epsg=4326)
-        ax.add_geometries(gdf.geometry,
-                          ccrs.PlateCarree(),
-                          facecolor='none',
-                          edgecolor=color_mpio,
-                          lw=lw_mpio,
-                          zorder=11)
     if rivers:
-        # Load a high-resolution map of river centerlines
-        Rivers = cfeature.NaturalEarthFeature(
-            category='physical',
-            name='rivers_lake_centerlines',
-            scale=f'{map_resolution}m',
-            facecolor='none')
-
-        # Add rivers to the axes
-        ax.add_feature(Rivers, edgecolor=color_river, facecolor='None',
+        rivers_feat = cfeature.NaturalEarthFeature(
+            'physical', 'rivers_lake_centerlines',
+            scale=f"{map_resolution}m", facecolor='none')
+        ax.add_feature(rivers_feat, edgecolor=color_river,
                        lw=lw_river, zorder=11)
+
     return ax
 
 
@@ -449,8 +401,9 @@ def add_colorbar_row(fig, cs, label, grid_prop, row_idx,
 if __name__ == '__main__':
 
     # Define the map projection (PlateCarree) and set the image extent
-    proj = ccrs.PlateCarree(central_longitude=0)
-    img_extent = (-77.5, -73.5, 5, 9)
+    projection = ccrs.PlateCarree(central_longitude=0)
+
+    img_extent = (0, 120, -30, 30)
 
     # Define the grid size (number of rows and columns)
     num_rows = 1
@@ -473,14 +426,12 @@ if __name__ == '__main__':
     # Define the contour levels for the temperature plot
     levels = np.linspace(6, 32, 18)
 
-    map_prop = {'subregiones': True,
-                'mpio_antioquia': True,
-                'rivers': True,
-                'lon_step': 2.5,
-                'lat_step': 2.5,
-                'map_resolution': 10,
+    map_prop = {'lon_step': 30,
+                'lat_step': 15,
+                'map_resolution': 50,
                 'lw_shape': 1.5,
-                'color_river': 'darkcyan',}
+                'color_river': 'darkcyan',
+                'fontsize_latlon': 10}
 
     # Loop through each row and column to create a grid of subplots
     for fi in range(num_rows):
@@ -488,12 +439,12 @@ if __name__ == '__main__':
             # Add axes to the figure with the calculated properties
             ax = fig.add_axes([x_coords[ci], y_coords[fi],
                                x_fig, y_fig],
-                              projection=proj)
+                              projection=projection)
             # Add geographic features to the plot
             ax = add_map_features(ax, **map_prop)
 
             # Set the image extent and aspect ratio of the plot
-            ax.set_extent(img_extent, proj)
+            ax.set_extent(img_extent, projection)
             #ax.set_aspect('auto')
 
             # Remove y-axis labels for subplots that aren't in the first column
@@ -506,3 +457,5 @@ if __name__ == '__main__':
 
             # Increment the index to move to the next time slice
             idx += 1
+
+# %%
