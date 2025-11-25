@@ -272,7 +272,8 @@ def add_colorbar(fig, cs, label, orientation, grid_prop,
 
 
 def add_colorbar_col(fig, cs, label, grid_prop, col_idx,
-                     cbar_factor=0.8, cbar_width=0.025, fontsize=12, **kwargs):
+                     cbar_factor=0.8, cbar_width=0.025, fontsize=12,
+                     y_coord_cbar=-0.1, **kwargs):
     """
     Add a colorbar to a figure.
 
@@ -434,10 +435,10 @@ if __name__ == '__main__':
                 'fontsize_latlon': 10}
 
     # Loop through each row and column to create a grid of subplots
-    for fi in range(num_rows):
+    for ri in range(num_rows):
         for ci in range(num_columns):
             # Add axes to the figure with the calculated properties
-            ax = fig.add_axes([x_coords[ci], y_coords[fi],
+            ax = fig.add_axes([x_coords[ci], y_coords[ri],
                                x_fig, y_fig],
                               projection=projection)
             # Add geographic features to the plot
