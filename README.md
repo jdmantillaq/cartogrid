@@ -1,10 +1,10 @@
-# Cartopy Grid Plots
+# CartoGrid
 
-This Python module, `cartopy_grid_plots.py`, is used for generating a grid of subplots in a single figure, each containing a geographic plot with temperature data. The grid of subplots can be customized to have any number of rows and columns. Each subplot includes features like continents, coastlines, and gridlines. The module uses the cartopy library for geographic data manipulation and plotting, and the xarray library for handling the netCDF dataset.
+This Python module, `cartogrid.py`, generates a grid of subplots in a single figure, each containing a geographic plot of temperature data. The grid of subplots can be customized to have any number of rows and columns. Each subplot includes features like continents, coastlines, and gridlines. The module uses the cartopy library for geographic data manipulation and plotting, and the xarray library for handling the netCDF dataset.
 
 ## Examples
 
-The `cartopy_grid_plots` module generates highly customizable, grid-based geographic plots, as demonstrated in the examples below. These plots were produced using a surface temperature dataset from NCEP/DOE Reanalysis II. 
+The `cartogrid` module generates highly customizable, grid-based geographic plots, as demonstrated in the examples below. These plots were produced using a surface temperature dataset from NCEP/DOE Reanalysis II. 
 
 For step-by-step instructions on how to generate similar plots, please refer to the `tutorial.ipynb` notebook included in this repository.
 
@@ -23,7 +23,7 @@ For step-by-step instructions on how to generate similar plots, please refer to 
 
 
 ## Functions
-* `continentes_lon_lat(ax, lon_step=30, lat_step=15)`: This function adds continents, coastlines, gridlines, and tick labels to a Cartopy axes.
+* `add_map_features(ax, lon_step=30, lat_step=15)`: This function adds continents, coastlines, gridlines, and tick labels to a Cartopy axes.
 
 * `define_grid_fig(num_rows, num_columns, horiz_spacing=0.015, vert_spacing=0.05, **kwargs)`: This function calculates the coordinates and dimensions of the subplots in a grid figure.
 
@@ -37,7 +37,7 @@ To use this module, follow these steps:
 3. Define the grid size (number of rows and columns).
 4. Use the `define_grid_fig` function to calculate properties of the grid.
 5. Create a figure with a specified size.
-6. Loop through each row and column to create a grid of subplots using the `continentes_lon_lat` function.
+6. Loop through each row and column to create a grid of subplots using the `add_map_features` function.
 7. Set the image extent and aspect ratio of the plot.
 8. Plot the dataset for each axes slice.
 9. Define the orientation and label of the colorbar.
