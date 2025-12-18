@@ -8,7 +8,7 @@ import pandas as pd
 
 def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
                     countries=False, coastline=True, rivers=False,
-                    projection=None,
+                    projection=None, fontsize_latlon=12,
                     **kwargs):
     """
     Add continents, coastlines, gridlines, and tick labels to a Cartopy axes.
@@ -73,7 +73,7 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     ax.set_xticks(lon_val, crs=ccrs.PlateCarree())
     ax.set_yticks(np.arange(-90, 91, lat_step), crs=ccrs.PlateCarree())
 
-    fontsize_latlon = kwargs.get('fontsize_latlon', 14)
+    fontsize_latlon = kwargs.get('fontsize_latlon', 12)
     ax.tick_params(axis='both', labelsize=fontsize_latlon, color="#434343")
 
     # LongitudeFormatter interprets values as degrees east of Greenwich
@@ -453,7 +453,7 @@ if __name__ == '__main__':
                 ax.set_yticklabels([])
 
             # Remove x-axis labels for subplots that are not in the last row
-            if fi < (num_rows - 1):
+            if ri < (num_rows - 1):
                 ax.set_xticklabels([])
 
             # Increment the index to move to the next time slice
