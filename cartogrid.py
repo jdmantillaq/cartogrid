@@ -7,9 +7,9 @@ import pandas as pd
 
 
 def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
-                    countries=False, coastline=True, rivers=False,
-                    projection=None, fontsize_latlon=10,
-                    **kwargs):
+                     countries=False, coastline=True, rivers=False,
+                     projection=None, fontsize_latlon=10, number_format='.0f',
+                     **kwargs):
     """
     Add continents, coastlines, gridlines, and tick labels to a Cartopy axes.
     Custom colors can also be set for shapes and countries.
@@ -77,8 +77,8 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     ax.tick_params(axis='both', labelsize=fontsize_latlon, color="#434343")
 
     # LongitudeFormatter interprets values as degrees east of Greenwich
-    lon_formatter = LongitudeFormatter(number_format='.0f',
-                                      zero_direction_label=True)
+    lon_formatter = LongitudeFormatter(number_format=number_format,
+                                       zero_direction_label=True)
     lat_formatter = LatitudeFormatter()
 
     ax.xaxis.set_major_formatter(lon_formatter)
@@ -116,6 +116,59 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
             scale=f"{map_resolution}m", facecolor='none')
         ax.add_feature(rivers_feat, edgecolor=color_river,
                        lw=lw_river, zorder=11)
+
+    return ax
+
+
+def format_longitude_axis(ax, lon_values, lon_step=30, number_format='.0f'):
+    """Format x-axis with longitude labels.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to format.
+    lon_values : array-like
+        Longitude values to determine tick range.
+    lon_step : float, optional
+        Step between longitude ticks (default: 20).
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        The formatted axes.
+    """
+    from cartopy.mpl.ticker import LongitudeFormatter
+    lon_formatter = LongitudeFormatter(number_format=number_format,
+                                       zero_direction_label=True,
+                                       )
+    lon_min = np.min(lon_values)
+    lon_max = np.max(lon_values)
+
+    # Round to nearest lon_step for cleaner ticks
+    lon_min_tick = np.ceil(lon_min / lon_step) * lon_step
+    lon_max_tick = np.floor(lon_max / lon_step) * lon_step
+    lon_ticks = np.arange(lon_min_tick, lon_max_tick + lon_step, lon_step)
+
+    # Handle both -180 to 180 and 0 to 360 conventions
+    if lon_min >= 0 and lon_max > 180:
+        # 0 to 360 convention: convert ticks > 180 for formatter
+        # LongitudeFormatter expects -180 to 180, so we need custom labels
+        ax.set_xticks(lon_ticks)
+        labels = []
+        for lon in lon_ticks:
+            if lon == 0 or lon == 360:
+                labels.append('0°')
+            elif lon == 180:
+                labels.append('180°')
+            elif lon > 180:
+                labels.append(f'{int(360 - lon)}°W')
+            else:
+                labels.append(f'{int(lon)}°E')
+        ax.set_xticklabels(labels)
+    else:
+        # -180 to 180 convention: use LongitudeFormatter directly
+        ax.set_xticks(lon_ticks)
+        ax.xaxis.set_major_formatter(lon_formatter)
 
     return ax
 
@@ -446,7 +499,7 @@ if __name__ == '__main__':
 
             # Set the image extent and aspect ratio of the plot
             ax.set_extent(img_extent, projection)
-            #ax.set_aspect('auto')
+            # ax.set_aspect('auto')
 
             # Remove y-axis labels for subplots that aren't in the first column
             if ci > 0:
