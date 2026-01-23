@@ -363,10 +363,10 @@ def add_colorbar_col(fig, cs, label, grid_prop, col_idx,
     (x_coords, y_coords, x_fig, y_fig) = grid_prop
 
     # Get the y-coordinate for the colorbar, default to -0.1 if not specified
-    y_coord_cbar = kwargs.get('y_coord_cbar', -0.1)
+    # y_coord_cbar = kwargs.get('y_coord_cbar', -0.1)
 
     # Get the x-coordinate for the colorbar, default to 1 if not specified
-    x_coord_cbar = kwargs.get('x_coord_cbar', 1)
+    # x_coord_cbar = kwargs.get('x_coord_cbar', 1)
 
     extend = kwargs.get('extend', 'both')
     ticks = kwargs.get('ticks', None)
