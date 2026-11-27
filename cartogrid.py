@@ -6,9 +6,58 @@ import xarray as xr
 import pandas as pd
 
 
+def _lon_formatter(lon_convention='180', number_format='.0f',
+                   zero_direction_label=False,
+                   dateline_direction_label=False):
+    """
+    Build a longitude tick formatter for the requested label convention.
+
+    Works on Cartopy GeoAxes (any central longitude: the tick value is
+    converted back to a geographic longitude first) and on regular
+    matplotlib axes (the tick value is used as the longitude itself, in
+    either -180..180 or 0..360).
+
+    Parameters
+    ----------
+    lon_convention : {'180', '360'}, optional
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
+    number_format : str, optional
+        Format of the label numbers, by default '.0f'.
+    zero_direction_label, dateline_direction_label : bool, optional
+        Passed to ``LongitudeFormatter`` for the '180' convention.
+
+    Returns
+    -------
+    cartopy.mpl.ticker.LongitudeFormatter
+    """
+    from cartopy.mpl.ticker import LongitudeFormatter
+
+    if lon_convention == '180':
+        return LongitudeFormatter(
+            number_format=number_format,
+            zero_direction_label=zero_direction_label,
+            dateline_direction_label=dateline_direction_label)
+
+    if lon_convention != '360':
+        raise ValueError("lon_convention must be '180' or '360'.")
+
+    class _Longitude360Formatter(LongitudeFormatter):
+        # Reuse Cartopy's projection handling; only change the label text
+        def _format_value(self, value, original_value):
+            val = float(value) % 360
+            if np.isclose(val, 360):
+                val = 0.0
+            return f"{val:{number_format}}°"
+
+    return _Longitude360Formatter(number_format=number_format)
+
+
 def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
                      countries=False, coastline=True, rivers=False,
                      projection=None, fontsize_latlon=10, number_format='.0f',
+                     ocean_mask=False, ocean_color='lightgray',
+                     ocean_resolution=None, lon_convention='180',
                      **kwargs):
     """
     Add continents, coastlines, gridlines, and tick labels to a Cartopy axes.
@@ -30,11 +79,26 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     rivers : bool, optional
         If True, adds the representation of rivers to the axes,
         by default False.
+    ocean_mask : bool, optional
+        If True, paints the ocean with a solid color on top of the plotted
+        data (masking it), by default False.
+    ocean_color : str, optional
+        Fill color of the ocean mask, by default 'lightgray'.
+    ocean_resolution : int or str, optional
+        Natural Earth resolution of the ocean mask (10, 50 or 110).
+        If None, uses ``map_resolution``.
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°E, 60°E (default);
+        '360' -> 240°, 0°, 60°.
     **kwargs
         color_shape: str, optional
             The color of the shape borders, by default 'k' (black).
         color_country: str, optional
             The color of the country borders, by default 'k' (black).
+        zorder_ocean: float, optional
+            Z-order of the ocean mask, by default 5 (above data, below
+            gridlines and coastlines).
 
     Returns
     -------
@@ -77,8 +141,8 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     ax.tick_params(axis='both', labelsize=fontsize_latlon, color="#434343")
 
     # LongitudeFormatter interprets values as degrees east of Greenwich
-    lon_formatter = LongitudeFormatter(number_format=number_format,
-                                       zero_direction_label=True)
+    lon_formatter = _lon_formatter(lon_convention, number_format,
+                                   zero_direction_label=True)
     lat_formatter = LatitudeFormatter()
 
     ax.xaxis.set_major_formatter(lon_formatter)
@@ -98,6 +162,16 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     lw_country = kwargs.get('lw_country', 1)
     color_river = kwargs.get('color_river', 'gray')
     lw_river = kwargs.get('lw_river', 0.6)
+    zorder_ocean = kwargs.get('zorder_ocean', 5)
+
+    if ocean_mask:
+        ocean_res = map_resolution if ocean_resolution is None \
+            else ocean_resolution
+        ocean_res = str(ocean_res).rstrip('m')
+        ocean_feat = cfeature.NaturalEarthFeature(
+            'physical', 'ocean', scale=f"{ocean_res}m",
+            facecolor=ocean_color, edgecolor='none')
+        ax.add_feature(ocean_feat, zorder=zorder_ocean)
 
     if coastline:
         ax.coastlines(resolution=f"{map_resolution}m",
@@ -120,8 +194,149 @@ def add_map_features(ax, lon_step=30, lat_step=15, map_resolution=50,
     return ax
 
 
-def format_longitude_axis(ax, lon_values, lon_step=30, number_format='.0f'):
-    """Format x-axis with longitude labels.
+def add_map_features_ea(ax, lon_step=60, lat_step=30, map_resolution=110,
+                        countries=False, coastline=True, rivers=False,
+                        fontsize_latlon=9, left_labels=True,
+                        bottom_labels=True, top_labels=False,
+                        right_labels=False, central_longitude=None,
+                        lon_convention='180', lon_ticks=None, lat_ticks=None,
+                        number_format='.0f', **kwargs):
+    """
+    Add coastlines, borders, rivers and a labelled graticule to a Cartopy
+    axes with ANY projection, including non-rectangular equal-area ones
+    (EqualEarth, Mollweide, AlbersEqualArea, LambertAzimuthalEqualArea...).
+
+    Labels are drawn with ``ax.gridlines()`` instead of ``ax.set_xticks()``,
+    which Cartopy only allows on rectangular projections.
+
+    Parameters
+    ----------
+    ax : cartopy.mpl.geoaxes.GeoAxes
+        The Cartopy axes to modify.
+    lon_step, lat_step : float, optional
+        Spacing of the meridians and parallels, by default 60 and 30.
+        Meridians are anchored on the central longitude, so with
+        ``central_longitude=180`` and ``lon_step=60`` they fall at
+        180°, 120°W, 60°W, 0°, ...
+    map_resolution : {10, 50, 110}, optional
+        Natural Earth resolution, by default 110.
+    countries, coastline, rivers : bool, optional
+        Which geographic features to draw.
+    fontsize_latlon : float, optional
+        Font size of the lon/lat labels, by default 9.
+    left_labels, bottom_labels, top_labels, right_labels : bool, optional
+        Which edges of the map get labels.
+    central_longitude : float, optional
+        Longitude the graticule is centred on. By default it is taken from
+        ``ax.projection``. Either convention is accepted (e.g. -60 or 300).
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
+    lon_ticks, lat_ticks : array-like, optional
+        Explicit meridians/parallels to draw. They override ``lon_step``
+        and ``lat_step``. ``lon_ticks`` may be given in either -180..180
+        or 0..360 (e.g. [200, 250, 300] or [-160, -110, -60]).
+    number_format : str, optional
+        Format of the label numbers, by default '.0f'.
+    **kwargs
+        lw_coastlines, color_country, lw_country, color_river, lw_river,
+        color_grid, color_labels.
+
+    Returns
+    -------
+    cartopy.mpl.geoaxes.GeoAxes
+        The modified axes.
+    """
+
+    import numpy as np
+    import cartopy.crs as ccrs
+    from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
+    import cartopy.feature as cfeature
+    import matplotlib.ticker as mticker
+
+    if lon_convention not in ('180', '360'):
+        raise ValueError("lon_convention must be '180' or '360'.")
+
+    def wrap180(lon):
+        # Map any longitude to [-180, 180)
+        return ((np.asarray(lon, dtype=float) + 180) % 360) - 180
+
+    lw_coastlines = kwargs.get('lw_coastlines', 0.8)
+    color_country = kwargs.get('color_country', 'k')
+    lw_country = kwargs.get('lw_country', 0.6)
+    color_river = kwargs.get('color_river', 'gray')
+    lw_river = kwargs.get('lw_river', 0.6)
+    color_grid = kwargs.get('color_grid', 'gray')
+    color_labels = kwargs.get('color_labels', '#434343')
+
+    # --- Geographic features -------------------------------------------
+    if coastline:
+        ax.coastlines(resolution=f"{map_resolution}m",
+                      color='k', lw=lw_coastlines, zorder=10)
+    if countries:
+        ax.add_feature(cfeature.NaturalEarthFeature(
+            'cultural', 'admin_0_boundary_lines_land',
+            scale=f"{map_resolution}m", facecolor='none'),
+            edgecolor=color_country, lw=lw_country, zorder=11)
+    if rivers:
+        ax.add_feature(cfeature.NaturalEarthFeature(
+            'physical', 'rivers_lake_centerlines',
+            scale=f"{map_resolution}m", facecolor='none'),
+            edgecolor=color_river, lw=lw_river, zorder=11)
+
+    # --- Graticule + labels ----------------------------------------------
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                      linestyle='--', linewidth=0.6, color=color_grid,
+                      alpha=0.8, zorder=9, x_inline=False, y_inline=False,
+                      rotate_labels=False)
+
+    # Central longitude: explicit argument, else the projection's own
+    if central_longitude is None:
+        central_longitude = ax.projection.proj4_params.get('lon_0', 0)
+    central_longitude = float(wrap180(central_longitude))
+
+    # Meridians: anchored on the central longitude, then wrapped to
+    # [-180, 180) because the gridliner works in PlateCarree coordinates.
+    if lon_ticks is None:
+        lon_ticks = central_longitude + np.arange(-180, 180 + lon_step,
+                                                  lon_step)
+    # (+ 0.0 turns -0.0 into 0.0, which would otherwise be labelled "0°W")
+    lon_ticks = np.unique(np.round(wrap180(lon_ticks), 6) + 0.0)
+    # Re-add the seam meridian (+180) so lines reach both edges of the map
+    if np.any(np.isclose(lon_ticks, -180)):
+        lon_ticks = np.append(lon_ticks, 180.0)
+
+    if lat_ticks is None:
+        lat_ticks = np.arange(-90, 90 + lat_step, lat_step)
+    lat_ticks = np.asarray(lat_ticks, dtype=float)
+    lat_ticks = lat_ticks[(lat_ticks >= -90) & (lat_ticks <= 90)]
+
+    gl.xlocator = mticker.FixedLocator(lon_ticks)
+    gl.ylocator = mticker.FixedLocator(lat_ticks)
+
+    # Label formatters
+    gl.xformatter = _lon_formatter(lon_convention, number_format)
+    gl.yformatter = LatitudeFormatter(number_format=number_format)
+
+    gl.left_labels = left_labels
+    gl.bottom_labels = bottom_labels
+    gl.top_labels = top_labels
+    gl.right_labels = right_labels
+
+    style = {'size': fontsize_latlon, 'color': color_labels}
+    gl.xlabel_style = style
+    gl.ylabel_style = style
+
+    return ax
+
+
+def format_longitude_axis(ax, lon_values, lon_step=30, number_format='.0f',
+                          lon_convention='180'):
+    """Format the x-axis of a regular (non-map) axes with longitude labels.
+
+    The data may use either -180..180 or 0..360 longitudes; tick positions
+    stay in the data's own coordinates, only the labels are converted.
 
     Parameters
     ----------
@@ -130,17 +345,19 @@ def format_longitude_axis(ax, lon_values, lon_step=30, number_format='.0f'):
     lon_values : array-like
         Longitude values to determine tick range.
     lon_step : float, optional
-        Step between longitude ticks (default: 20).
+        Step between longitude ticks (default: 30).
+    number_format : str, optional
+        Format of the label numbers, by default '.0f'.
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
 
     Returns
     -------
     ax : matplotlib.axes.Axes
         The formatted axes.
     """
-    from cartopy.mpl.ticker import LongitudeFormatter
-    lon_formatter = LongitudeFormatter(number_format=number_format,
-                                       zero_direction_label=True,
-                                       )
     lon_min = np.min(lon_values)
     lon_max = np.max(lon_values)
 
@@ -149,26 +366,13 @@ def format_longitude_axis(ax, lon_values, lon_step=30, number_format='.0f'):
     lon_max_tick = np.floor(lon_max / lon_step) * lon_step
     lon_ticks = np.arange(lon_min_tick, lon_max_tick + lon_step, lon_step)
 
-    # Handle both -180 to 180 and 0 to 360 conventions
-    if lon_min >= 0 and lon_max > 180:
-        # 0 to 360 convention: convert ticks > 180 for formatter
-        # LongitudeFormatter expects -180 to 180, so we need custom labels
-        ax.set_xticks(lon_ticks)
-        labels = []
-        for lon in lon_ticks:
-            if lon == 0 or lon == 360:
-                labels.append('0°')
-            elif lon == 180:
-                labels.append('180°')
-            elif lon > 180:
-                labels.append(f'{int(360 - lon)}°W')
-            else:
-                labels.append(f'{int(lon)}°E')
-        ax.set_xticklabels(labels)
-    else:
-        # -180 to 180 convention: use LongitudeFormatter directly
-        ax.set_xticks(lon_ticks)
-        ax.xaxis.set_major_formatter(lon_formatter)
+    # The formatter wraps each tick value itself, so it handles both
+    # -180..180 and 0..360 data (e.g. 240 -> "120°W" or "240°").
+    # zero_direction_label=False: on a regular axis, True renders 0 as "0°W"
+    ax.set_xticks(lon_ticks)
+    ax.xaxis.set_major_formatter(
+        _lon_formatter(lon_convention, number_format,
+                       zero_direction_label=False))
 
     return ax
 
@@ -542,7 +746,8 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
                                 band_color='tab:purple', band_alpha=0.25,
                                 band_lines=True, coastlines=True,
                                 land_color='0.88', gridlines=True,
-                                fontsize=9, map_resolution='110m'):
+                                fontsize=9, map_resolution='110m',
+                                lon_convention='180'):
     """Style an existing Cartopy GeoAxes as a tropical longitude reference map.
 
     Parameters
@@ -556,6 +761,10 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
         Visible map bounds, in geographic degrees.
     lon_step : float
         Spacing of geographic longitude ticks.
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
 
     Returns
     -------
@@ -604,7 +813,8 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
     # Cartopy can reject longitude ticks on a shifted projection; use the
     # geographic CRS explicitly and rely on the GeoAxes formatter.
     ax.set_xticks(ticks, crs=geo)
-    ax.xaxis.set_major_formatter(LongitudeFormatter(zero_direction_label=True))
+    # Plain "0°" / "180°" so the labels match format_hovmoller_longitude_axis
+    ax.xaxis.set_major_formatter(_lon_formatter(lon_convention, '.0f'))
     lat_ticks = np.array([south, 0., north])
     ax.set_yticks(np.unique(lat_ticks), crs=geo)
     ax.yaxis.set_major_formatter(LatitudeFormatter())
@@ -628,6 +838,7 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
                                 gridlines=True,
                                 fontsize=9,
                                 map_resolution='110m',
+                                lon_convention='180',
                                 ):
     """Add a geographic reference map beneath a Hovmöller diagram.
 
@@ -660,6 +871,10 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
         Font size of longitude and latitude labels.
     map_resolution : str
         Natural Earth resolution ('110m', '50m', '10m').
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
 
     Returns
     -------
@@ -727,6 +942,10 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
     # Longitude and latitude ticks
     lon_ticks = np.arange(np.ceil(lon_extent[0] / lon_step) * lon_step,
                           lon_extent[1] + 1e-8, lon_step)
+    # Drop ticks that are the same meridian (e.g. 0 and 360): on a full
+    # 360° map both land on the same edge and their labels overprint.
+    _, keep = np.unique(np.round(lon_ticks % 360, 6), return_index=True)
+    lon_ticks = lon_ticks[np.sort(keep)]
 
     lat_ticks = np.arange(np.ceil(lat_extent[0] / lat_step) * lat_step,
                           lat_extent[1] + 1e-8, lat_step)
@@ -734,8 +953,8 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
     ax.set_xticks(lon_ticks, crs=data_crs)
     ax.set_yticks(lat_ticks, crs=data_crs)
 
-    ax.xaxis.set_major_formatter(LongitudeFormatter(
-        zero_direction_label=True, dateline_direction_label=True))
+    # Plain "0°" / "180°" so the labels match format_hovmoller_longitude_axis
+    ax.xaxis.set_major_formatter(_lon_formatter(lon_convention, '.0f'))
     ax.yaxis.set_major_formatter(LatitudeFormatter())
 
     ax.tick_params(axis='both', labelsize=fontsize)
@@ -750,7 +969,7 @@ def add_hovmoller_reference_map(ax, lat_band=None, lat_extent=(-20, 20),
 def format_hovmoller_longitude_axis(
     ax, lon_values=None, lon_extent=None, lon_step=60,
     central_longitude=180, tick_fontsize=9, show_labels=True,
-    show_grid=False, number_format='.0f',
+    show_grid=False, number_format='.0f', lon_convention='180',
 ):
     """Format a regular Hovmöller x-axis as geographic longitudes.
 
@@ -780,13 +999,15 @@ def format_hovmoller_longitude_axis(
         Whether to draw vertical grid lines at longitude ticks.
     number_format : str
         Format specification for numeric longitude values.
+    lon_convention : {'180', '360'}, optional
+        How longitude labels are written:
+        '180' -> 120°W, 0°, 60°E (default);
+        '360' -> 240°, 0°, 60°.
 
     Returns
     -------
     matplotlib.axes.Axes
     """
-    from matplotlib.ticker import FuncFormatter
-
     if lon_step <= 0:
         raise ValueError('lon_step must be positive')
     if not np.isfinite(central_longitude):
@@ -809,20 +1030,11 @@ def format_hovmoller_longitude_axis(
     ticks = np.arange(np.ceil(west / lon_step) * lon_step,
                       east + lon_step * 1e-8, lon_step)
 
-    def longitude_label(value, _pos):
-        # Wrap only the label, never the tick position.
-        longitude = value % 360
-        if np.isclose(longitude, 0) or np.isclose(longitude, 360):
-            return '0°'
-        if np.isclose(longitude, 180):
-            return '180°'
-        if longitude < 180:
-            return f'{longitude:{number_format}}°E'
-        return f'{360 - longitude:{number_format}}°W'
-
     ax.set_xlim(west, east)
     ax.set_xticks(ticks)
-    ax.xaxis.set_major_formatter(FuncFormatter(longitude_label))
+    # The formatter wraps only the label, never the tick position
+    ax.xaxis.set_major_formatter(
+        _lon_formatter(lon_convention, number_format))
     ax.tick_params(axis='x', which='major', labelsize=tick_fontsize,
                    labelbottom=show_labels)
     # ax.grid(axis='x', visible=show_grid, which='major',
@@ -887,7 +1099,9 @@ if __name__ == '__main__':
                 ax, lon_values=np.linspace(0, 360, 10), lon_extent=(0, 359),
                 lon_step=120,
                 central_longitude=central_longitude, tick_fontsize=10,
-                show_labels=True, show_grid=False, number_format='.0f')
+                show_labels=True, show_grid=False, number_format='.0f',
+                lon_convention='360'
+                )
             # Add geographic features to the plot
             # ax = add_map_features(ax, **map_prop)
 
@@ -917,7 +1131,8 @@ if __name__ == '__main__':
             lon_extent=(0, 360), lon_step=120,
             band_color='tab:purple', band_alpha=0.25,
             band_lines=True, coastlines=True, land_color='0.88',
-            gridlines=True, fontsize=12, map_resolution='110m')
+            gridlines=True, fontsize=12, map_resolution='110m',
+            lon_convention='360')
 
         if ci > 0:
             ax_map.set_yticklabels([])
